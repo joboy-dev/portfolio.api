@@ -46,7 +46,6 @@ async def get_services(
     sort_by: str = 'created_at',
     order: str = 'desc',
     db: Session=Depends(get_db), 
-    current_user: User=Depends(AuthService.get_current_superuser)
 ):
     """Endpoint to get all services"""
 
