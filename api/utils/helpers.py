@@ -53,11 +53,16 @@ def format_additional_info_create(additional_info: List[AdditionalInfoSchema]):
 def format_additional_info_update(
     additional_info: List[AdditionalInfoSchema], 
     model_instance, 
+    model_instance_additional_info_name: str = 'additional_info',
     keys_to_remove: Optional[List[str]]=None
 ):
     '''Function to help format additional info for update endpoints for an existing object'''
     
-    current_additional_info_dict_copy = model_instance.additional_info.copy()
+    current_additional_info_dict_copy = (
+        getattr(model_instance, model_instance_additional_info_name).copy() 
+        if getattr(model_instance, model_instance_additional_info_name) 
+        else {}
+    )
     
     for info in additional_info:
         current_additional_info_dict_copy[info.key] = info.value

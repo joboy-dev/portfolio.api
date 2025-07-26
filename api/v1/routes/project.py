@@ -9,6 +9,7 @@ from api.utils.responses import success_response
 from api.utils.settings import settings
 from api.v1.models.user import User
 from api.v1.models.project import Project
+from api.v1.models.tag import Tag
 from api.v1.services.auth import AuthService
 from api.v1.services.project import ProjectService
 from api.v1.schemas import project as project_schemas
@@ -27,7 +28,10 @@ async def create_project(
     """Endpoint to create a new project"""
     
     max_position = Project.get_max_position(db)
-
+    
+    if payload.technical_details:
+        payload.technical_details = helpers.format_additional_info_create(payload.technical_details)
+        
     project = Project.create(
         db=db,
         slug=" ",
@@ -53,6 +57,7 @@ async def get_projects(
     domain: str = None,
     slug: str = None,
     project_type: str = None,
+    tags: str = None,
     page: int = 1,
     per_page: int = 10,
     sort_by: str = 'position',
@@ -75,11 +80,39 @@ async def get_projects(
         project_type=project_type,
     )
     
+    if tags:
+        tag_list = tags.split(',')
+        query = query.filter(Project.tags.any(Tag.name.in_(tag_list)))
+        projects, count = query.all(), query.count()
+    
     return paginator.build_paginated_response(
         items=[project.to_dict() for project in projects],
         endpoint='/projects',
         page=page,
         size=per_page,
+        total=count,
+    )
+    
+
+@project_router.get("/featured", status_code=200)
+async def get_featured_projects(
+    db: Session=Depends(get_db)
+):
+    """Endpoint to get all projects"""
+
+    query, projects, count = Project.fetch_by_field(
+        db, 
+        sort_by='position',
+        order='asc',
+        page=1,
+        per_page=4,
+    )
+    
+    return paginator.build_paginated_response(
+        items=[project.to_dict() for project in projects],
+        endpoint='/projects/featured',
+        page=1,
+        size=4,
         total=count,
     )
 
@@ -116,8 +149,17 @@ async def update_project(
     project = Project.update(
         db=db,
         id=id,
-        **payload.model_dump(exclude_unset=True)
+        **payload.model_dump(exclude_unset=True, exclude={'technical_details'})
     )
+    
+    if payload.technical_details:
+        project.technical_details = helpers.format_additional_info_update(
+            additional_info=payload.technical_details,
+            model_instance=project,
+            model_instance_additional_info_name='technical_details',
+            keys_to_remove=payload.technical_details_keys_to_remove
+        )
+        db.commit()
 
     logger.info(f'Project with id {project.id} updated')
 
