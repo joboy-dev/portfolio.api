@@ -32,6 +32,9 @@ async def create_project(
     if payload.technical_details:
         payload.technical_details = helpers.format_additional_info_create(payload.technical_details)
         
+    if payload.challenges_and_solutions:
+        payload.challenges_and_solutions = helpers.format_additional_info_create(payload.challenges_and_solutions)
+        
     project = Project.create(
         db=db,
         slug=" ",
@@ -121,7 +124,6 @@ async def get_featured_projects(
 async def get_project_by_id(
     id: str,
     db: Session=Depends(get_db), 
-    current_user: User=Depends(AuthService.get_current_superuser)
 ):
     """Endpoint to get a project by ID or unique_id in case ID fails."""
 
@@ -149,7 +151,7 @@ async def update_project(
     project = Project.update(
         db=db,
         id=id,
-        **payload.model_dump(exclude_unset=True, exclude={'technical_details'})
+        **payload.model_dump(exclude_unset=True, exclude={'technical_details', 'challenges_and_solutions'})
     )
     
     if payload.technical_details:
@@ -159,7 +161,16 @@ async def update_project(
             model_instance_additional_info_name='technical_details',
             keys_to_remove=payload.technical_details_keys_to_remove
         )
-        db.commit()
+    
+    if payload.challenges_and_solutions:
+        project.challenges_and_solutions = helpers.format_additional_info_update(
+            additional_info=payload.challenges_and_solutions,
+            model_instance=project,
+            model_instance_additional_info_name='challenges_and_solutions',
+            keys_to_remove=payload.challenges_and_solutions_keys_to_remove
+        )
+        
+    db.commit()
 
     logger.info(f'Project with id {project.id} updated')
 

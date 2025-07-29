@@ -73,7 +73,6 @@ async def get_blogs(
 async def get_blog_by_id(
     id: str,
     db: Session=Depends(get_db), 
-    current_user: User=Depends(AuthService.get_current_superuser)
 ):
     """Endpoint to get a blog by ID or unique_id in case ID fails."""
 

@@ -110,8 +110,12 @@ class BaseTableModel(Base):
             # Check with unique_id
             obj = db.query(cls).filter_by(unique_id=id, is_deleted=False).first()
             
-            if obj is None:
-                raise HTTPException(status_code=404, detail=f"Record not found in table `{cls.__tablename__}`")
+            if obj is None and hasattr(cls, "slug"):
+                # Check with slug
+                obj = db.query(cls).filter_by(slug=id, is_deleted=False).first()
+                
+                if obj is None:
+                    raise HTTPException(status_code=404, detail=f"Record not found in table `{cls.__tablename__}`")
             
         return obj
     
