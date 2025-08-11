@@ -37,7 +37,7 @@ async def register(
     _, _, count = User.fetch_by_field(db=db, paginate=False)
     
     if count > 0:
-        raise HTTPException(400, "An admin user already exists. Cannot have more than one,")
+        raise HTTPException(400, "An admin user already exists. Cannot have more than one.")
     
     new_user, access_token, refresh_token = UserService.create(db, payload, bg_tasks)
     
