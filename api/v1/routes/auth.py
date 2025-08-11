@@ -1,5 +1,5 @@
 from datetime import timedelta
-from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from decouple import config
@@ -32,6 +32,12 @@ async def register(
         payload (CreateUser): Payload containing first_name, last_name, email and password
         db (Session, optional): Database session. Defaults to Depends(get_db).
     """
+    
+    # Check a user exists
+    _, _, count = User.fetch_by_field(db=db, paginate=False)
+    
+    if count > 0:
+        raise HTTPException(400, "A user already exists")
     
     new_user, access_token, refresh_token = UserService.create(db, payload, bg_tasks)
     
