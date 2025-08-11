@@ -138,7 +138,7 @@ class MinioService:
                     url=preview_url
                 )
                 
-            return preview_url
+            return new_file, preview_url
 
         except S3Error as s3_error:
             raise s3_error

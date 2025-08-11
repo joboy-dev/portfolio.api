@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from api.db.database import get_db
 from api.utils import paginator, helpers
+from api.utils.firebase_service import FirebaseService
 from api.utils.responses import success_response
 from api.utils.settings import settings
 from api.v1.models.user import User
@@ -30,21 +31,35 @@ async def create_profile(
     if count > 0:
         raise HTTPException(status_code=400, detail="Profile already exists")
     
-    file = await FileService.upload_file(
+    # file = await FileService.upload_file(
+    #     db=db,
+    #     payload= FileBase(
+    #         file=payload.file,
+    #         model_name='profile',
+    #         model_id=current_user.id,
+    #         label='Profile',
+    #         description='User profile image'
+    #     ),
+    #     allowed_extensions=['jpg', 'jpeg', 'png', 'jfif', 'svg']
+    # )
+    
+    _, url = await FirebaseService.upload_file(
         db=db,
-        payload= FileBase(
-            file=payload.file,
-            model_name='profile',
-            model_id=current_user.id,
-            label='Profile',
-            description='User profile image'
-        ),
-        allowed_extensions=['jpg', 'jpeg', 'png', 'jfif', 'svg']
+        file=payload.file,
+        upload_folder='profile',
+        model_id=current_user.id,
+        file_label="Profile",
+        file_description="User profile image",
+        allowed_extensions=[
+            "jpg", "jpeg", "png", 
+            "jfif", "svg", "pdf"
+        ],
+        add_to_db=True
     )
 
     profile = Profile.create(
         db=db,
-        image_url=file.url,
+        image_url=url,
         **payload.model_dump(exclude_unset=True, exclude=['file'])
     )
 
@@ -89,22 +104,36 @@ async def update_profile(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     if payload.file:
-        file = await FileService.upload_file(
-            db=db,
-            payload= FileBase(
-                file=payload.file,
-                model_name='profile',
-                model_id=current_user.id,
-                label='Profile',
-                description='User profile image'
-            ),
-            allowed_extensions=['jpg', 'jpeg', 'png', 'jfif', 'svg']
-        )
+        # file = await FileService.upload_file(
+        #     db=db,
+        #     payload= FileBase(
+        #         file=payload.file,
+        #         model_name='profile',
+        #         model_id=current_user.id,
+        #         label='Profile',
+        #         description='User profile image'
+        #     ),
+        #     allowed_extensions=['jpg', 'jpeg', 'png', 'jfif', 'svg']
+        # )
 
+        _, url = await FirebaseService.upload_file(
+            db=db,
+            file=payload.file,
+            upload_folder='profile',
+            model_id=current_user.id,
+            file_label="Profile",
+            file_description="User profile image",
+            allowed_extensions=[
+                "jpg", "jpeg", "png", 
+                "jfif", "svg", "pdf"
+            ],
+            add_to_db=True
+        )
+        
     profile = Profile.update(
         db=db,
         id=profiles[0].id,
-        image_url=file.url if payload.file else profiles[0].image_url,
+        image_url=url if payload.file else profiles[0].image_url,
         **payload.model_dump(exclude_unset=True, exclude=['file'])
     )
 

@@ -62,4 +62,25 @@ class FirebaseService:
                 url=download_url
             )
         
-        return download_url
+        return new_file, download_url
+
+
+    @classmethod
+    def delete_file_from_firebase(cls, storage_path: str):
+        """
+        Deletes a file from Firebase Storage.
+
+        Args:
+            storage_path (str): The path to the file in Firebase Storage (e.g., 'app_name/folder/model_id/filename.ext')
+        Returns:
+            bool: True if deletion was successful, False otherwise.
+        """
+        try:
+            firebase = pyrebase.initialize_app(firebase_config)
+            storage = firebase.storage()
+            storage.delete(storage_path, None)
+            return True
+        except Exception as e:
+            # Optionally log the error if logger is available
+            print(f"Error deleting file from Firebase Storage: {e}")
+            return False

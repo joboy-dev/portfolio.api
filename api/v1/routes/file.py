@@ -90,7 +90,7 @@ async def upload_file_to_minio(
         current_user (User, optional): Current logged in user for authentication. Defaults to Depends(AuthService.get_current_entity).
     """
     
-    url = await MinioService.upload_to_minio(
+    _, url = await MinioService.upload_to_minio(
         db=db,
         file=payload.file,
         model_name=payload.model_name,
@@ -124,7 +124,7 @@ async def upload_file_to_firebase(
         current_user (User, optional): Current logged in user for authentication. Defaults to Depends(AuthService.get_current_entity).
     """
     
-    url = await FirebaseService.upload_file(
+    _, url = await FirebaseService.upload_file(
         db=db,
         file=payload.file,
         upload_folder=payload.model_name,

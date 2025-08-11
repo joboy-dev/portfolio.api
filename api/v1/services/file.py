@@ -124,16 +124,27 @@ class FileService:
     ):
         '''Fucntion to handle bulk upload of files'''
         
+        from api.utils.firebase_service import FirebaseService
+        
         file_instances = []
         
         for file in files:
-            file_instance = await cls.upload_file(
+            # file_instance = await cls.upload_file(
+            #     db=db,
+            #     payload=FileBase(
+            #         file=file,
+            #         model_name=model_name,
+            #         model_id=model_id,
+            #     ),
+            #     allowed_extensions=allowed_extensions,
+            #     add_to_db=add_to_db
+            # )
+            
+            file_instance, url = await FirebaseService.upload_file(
                 db=db,
-                payload=FileBase(
-                    file=file,
-                    model_name=model_name,
-                    model_id=model_id,
-                ),
+                file=file,
+                upload_folder=model_name,
+                model_id=model_id,
                 allowed_extensions=allowed_extensions,
                 add_to_db=add_to_db
             )
