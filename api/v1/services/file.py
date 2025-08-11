@@ -21,7 +21,7 @@ class FileService:
         db: Session, 
         payload: FileBase,
         allowed_extensions: List[str] = [],
-        add_to_db: bool = True
+        add_to_db: bool = True,
     ):
         """Upload a file to the server and save its metadata to the database."""
         
@@ -75,6 +75,7 @@ class FileService:
         logger.info(f"File saved to {file_path}")
         
         file_url = f"{config('API_URL')}/{file_path}" if not payload.url else payload.url,  # TODO: fix up. generate url by uploading to a storage location
+        
         if add_to_db:
             # Find the highest position for the given model_name
             query = (

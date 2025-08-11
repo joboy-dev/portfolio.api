@@ -80,7 +80,8 @@ class MinioService:
         file_label: str = None,
         model_id: Optional[str] = None,
         file_description: str = None,
-        add_to_db: bool = False
+        add_to_db: bool = False,
+        delete_after_upload: bool = True
     ):
         '''This function uploads a file to a bucket bucket in minio'''
         
@@ -95,15 +96,18 @@ class MinioService:
                 description=file_description
             ),
             allowed_extensions=allowed_extensions,
-            add_to_db=add_to_db
+            add_to_db=add_to_db,
         )
+        
+        if isinstance(new_file, File):
+            new_file = new_file.to_dict()
 
         bucket_name = config("APP_NAME")
-        filename = new_file.file_name if isinstance(new_file, File) else new_file['file_name']
+        filename = new_file.get('file_name')
         file_extension = filename.split('.')[-1].lower()
         content_type = EXTENSION_TO_MIME_TYPES_MAPPING[file_extension]
         destination = f"{model_name}/{model_id}/{filename}" if model_id else f"{model_name}/{filename}"  # file extensuion is already included in filename
-        source_file = new_file.file_path if isinstance(new_file, File) else new_file['file_path']
+        source_file = new_file.get('file_path')
         
         try:
             if not cls.minio_client.bucket_exists(bucket_name):
@@ -130,15 +134,22 @@ class MinioService:
             #     response_content_disposition=f"attachment; filename={destination}"
             # )
 
-            # Update file url
-            if isinstance(new_file, File):
+            if new_file.get('id'):
+                # Update file url
                 File.update(
                     db=db,
-                    id=new_file.id,
+                    id=new_file.get('id'),
                     url=preview_url
                 )
                 
-            return new_file, preview_url
+            if delete_after_upload:
+                try:
+                    os.remove(new_file.get('file_path'))
+                    logger.info(f"Deleted file at {new_file.get('file_path')} after upload")
+                except Exception as e:
+                    logger.error(f"Error deleting file after upload: {e}")
+                    
+                return new_file, preview_url
 
         except S3Error as s3_error:
             raise s3_error

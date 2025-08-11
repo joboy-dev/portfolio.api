@@ -2,11 +2,14 @@ import os, pyrebase
 from sqlalchemy.orm import Session
 from decouple import config
 
-from api.core.dependencies.firebase_config import firebase_config
+from api.utils.loggers import create_logger
+from firebase_config import firebase_config
 from api.v1.models.file import File
 from api.v1.schemas.file import FileBase
 from api.v1.services.file import FileService
 
+
+logger = create_logger(__name__)
 
 class FirebaseService:
     
@@ -21,6 +24,7 @@ class FirebaseService:
         file_label: str = None,
         file_description: str = None,
         add_to_db: bool = False,
+        delete_after_upload: bool = True,
     ):
         '''Function to upload a file'''
         
@@ -34,8 +38,11 @@ class FirebaseService:
                 description=file_description
             ),
             allowed_extensions=allowed_extensions,
-            add_to_db=add_to_db
+            add_to_db=add_to_db,
         )
+        
+        if isinstance(new_file, File):
+            new_file = new_file.to_dict()
         
         # Initailize firebase
         firebase = pyrebase.initialize_app(firebase_config)
@@ -43,24 +50,31 @@ class FirebaseService:
         # Set up storage and a storage path for each file
         storage = firebase.storage()
         firebase_storage_path = (
-            f'{config("APP_NAME")}/{upload_folder}/{model_id}/{new_file.file_name}' 
+            f'{config("APP_NAME")}/{upload_folder}/{model_id}/{new_file.get('file_name')}' 
             if model_id 
-            else f'{config("APP_NAME")}/{upload_folder}/{new_file.file_name}'
+            else f'{config("APP_NAME")}/{upload_folder}/{new_file.get('file_name')}'
         )
         
         # Store the file in the firebase storage path
-        storage.child(firebase_storage_path).put(new_file.file_path)
+        storage.child(firebase_storage_path).put(new_file.get('file_path'))
         
         # Get download URL
         download_url = storage.child(firebase_storage_path).get_url(None)
         
-        if isinstance(new_file, File):
+        if new_file.get('id'):
             # Update file url
             File.update(
                 db=db,
-                id=new_file.id,
+                id=new_file.get('id'),
                 url=download_url
             )
+            
+        if delete_after_upload:
+            try:
+                os.remove(new_file.get('file_path'))
+                logger.info(f"Deleted file at {new_file.get('file_path')} after upload")
+            except Exception as e:
+                logger.error(f"Error deleting file after upload: {e}")
         
         return new_file, download_url
 
