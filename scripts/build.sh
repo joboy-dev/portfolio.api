@@ -11,9 +11,6 @@ cd "$PROJECT_DIR"
 echo "Installing dependencies..."
 pip install -r requirements.txt
 
-echo "Create database..."
-python3 create_db.py
-
 echo "Running database migrations..."
 alembic upgrade head
 
