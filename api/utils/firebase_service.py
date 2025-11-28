@@ -46,7 +46,7 @@ class FirebaseService:
         
         # Initailize firebase
         firebase = pyrebase.initialize_app(firebase_config)
-        
+            
         # Set up storage and a storage path for each file
         storage = firebase.storage()
         firebase_storage_path = (

@@ -165,4 +165,4 @@ tmp
 filestorage
 logs/
 serviceAccount.json
-firebase_config.py
+# firebase_config.py
