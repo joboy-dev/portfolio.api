@@ -42,7 +42,7 @@ async def create_file(
     return success_response(
         message=f"File created successfully",
         status_code=201,
-        data=file_obj.to_dict()
+        data=file_obj.to_dict() if isinstance(file_obj, FileModel) else file_obj
     )
     
 
