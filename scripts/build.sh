@@ -14,5 +14,5 @@ pip install -r requirements.txt
 echo "Running database migrations..."
 alembic upgrade head
 
-echo "Creating/Updating organization role and permissions..."
+echo "Creating profile..."
 python3 scripts/seeders/seed_profile.py
