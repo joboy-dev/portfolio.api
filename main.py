@@ -221,7 +221,7 @@ async def exception(request: Request, exc: Exception):
 if __name__ == "__main__":
     uvicorn.run(
         "main:app", 
-        port=7001, 
+        port=config('PORT'), 
         reload=True,
         workers=4,
         reload_excludes=['logs/']
