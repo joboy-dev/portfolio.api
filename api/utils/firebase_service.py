@@ -64,14 +64,12 @@ class FirebaseService:
         logger.info(f"Firebase url:  {download_url}")
         logger.info(f"File id: {new_file.get('id')}")
         
-        if new_file.get('id'):
-            # Update file url
-            File.update(
-                db=db,
-                id=new_file.get('id'),
-                external_url=download_url,
-                url=download_url if delete_after_upload else new_file.get('url')
-            )
+        File.update(
+            db=db,
+            id=new_file.get('id'),
+            external_url=download_url,
+            url=download_url if delete_after_upload else new_file.get('url')
+        )
             
         if delete_after_upload:
             try:
