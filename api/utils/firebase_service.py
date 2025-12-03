@@ -24,7 +24,7 @@ class FirebaseService:
         file_label: str = None,
         file_description: str = None,
         add_to_db: bool = True,
-        delete_after_upload: bool = True,
+        delete_after_upload: bool = False,
     ):
         '''Function to upload a file'''
         
@@ -61,7 +61,7 @@ class FirebaseService:
         # Get download URL
         download_url = storage.child(firebase_storage_path).get_url(None)
         
-        logger.info("Firebase url: ", download_url)
+        logger.info(f"Firebase url:  {download_url}")
         logger.info(f"File id: {new_file.get('id')}")
         
         if new_file.get('id'):
@@ -69,7 +69,8 @@ class FirebaseService:
             File.update(
                 db=db,
                 id=new_file.get('id'),
-                url=download_url
+                external_url=download_url,
+                url=download_url if delete_after_upload else new_file.get('url')
             )
             
         if delete_after_upload:

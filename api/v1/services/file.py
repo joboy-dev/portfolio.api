@@ -151,7 +151,7 @@ class FileService:
                 model_id=model_id,
                 allowed_extensions=allowed_extensions,
                 add_to_db=add_to_db,
-                delete_after_upload=False
+                delete_after_upload=True
             )
             
             file_instances.append(file_instance)

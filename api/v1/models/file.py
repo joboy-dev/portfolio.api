@@ -14,6 +14,7 @@ class File(BaseTableModel):
     model_id = sa.Column(sa.String, nullable=True, index=True)
     model_name = sa.Column(sa.String(255), nullable=False, index=True)
     url = sa.Column(sa.Text, nullable=False)
+    external_url = sa.Column(sa.Text, nullable=True)
     description = sa.Column(sa.Text)
     content = sa.Column(sa.Text)
     label = sa.Column(sa.String)
