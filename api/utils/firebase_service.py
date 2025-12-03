@@ -80,7 +80,7 @@ class FirebaseService:
             except Exception as e:
                 logger.error(f"Error deleting file after upload: {e}")
         
-        return new_file, download_url
+        return new_file.to_dict() if isinstance(new_file, File) else new_file, download_url
 
 
     @classmethod
