@@ -42,7 +42,9 @@ class FirebaseService:
         )
         
         if isinstance(new_file, File):
-            new_file = new_file.to_dict()
+            new_file_dict = new_file.to_dict()
+        else:
+            new_file_dict = new_file
         
         # Initailize firebase
         firebase = pyrebase.initialize_app(firebase_config)
@@ -50,9 +52,9 @@ class FirebaseService:
         # Set up storage and a storage path for each file
         storage = firebase.storage()
         firebase_storage_path = (
-            f'{config("APP_NAME")}/{upload_folder}/{model_id}/{new_file.get('file_name')}' 
+            f'{config("APP_NAME")}/{upload_folder}/{model_id}/{new_file_dict.get('file_name')}' 
             if model_id 
-            else f'{config("APP_NAME")}/{upload_folder}/{new_file.get('file_name')}'
+            else f'{config("APP_NAME")}/{upload_folder}/{new_file_dict.get('file_name')}'
         )
         
         # Store the file in the firebase storage path
@@ -62,16 +64,14 @@ class FirebaseService:
         download_url = storage.child(firebase_storage_path).get_url(None)
         
         logger.info(f"Firebase url:  {download_url}")
-        logger.info(f"File id: {new_file.get('id')}")
+        logger.info(f"File id: {new_file_dict.get('id')}")
         
         # Update file url
-        if new_file.get('id', None):
-            File.update(
-                db=db,
-                id=new_file.get('id'),
-                external_url=download_url,
-                url=download_url if delete_after_upload else new_file.get('url')
-            )
+        if isinstance(new_file, File):
+            new_file.external_url = download_url
+            new_file.url = download_url if delete_after_upload else new_file.url
+            db.commit()
+            db.refresh(new_file)
             
         if delete_after_upload:
             try:
