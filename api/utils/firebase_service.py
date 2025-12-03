@@ -58,7 +58,7 @@ class FirebaseService:
         )
         
         # Store the file in the firebase storage path
-        storage.child(firebase_storage_path).put(new_file.get('file_path'))
+        storage.child(firebase_storage_path).put(new_file_dict.get('file_path'))
         
         # Get download URL
         download_url = storage.child(firebase_storage_path).get_url(None)
