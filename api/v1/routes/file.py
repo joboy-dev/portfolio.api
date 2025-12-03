@@ -67,12 +67,12 @@ async def bulk_upload_files(
         model_name=payload.model_name
     )
     
-    logger.info(f'Files {[file.id for file in file_objs]} uploaded successfully')
+    logger.info(f'Files {[file.get('id') for file in file_objs]} uploaded successfully')
     
     return success_response(
         message=f"Files uploaded successfully",
         status_code=201,
-        data=[file.to_dict() for file in file_objs]
+        data=[file for file in file_objs]
     )
 
 
