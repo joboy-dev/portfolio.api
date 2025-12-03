@@ -61,6 +61,9 @@ class FirebaseService:
         # Get download URL
         download_url = storage.child(firebase_storage_path).get_url(None)
         
+        logger.info("Firebase url: ", download_url)
+        logger.info(f"File id: {new_file.get('id')}")
+        
         if new_file.get('id'):
             # Update file url
             File.update(
