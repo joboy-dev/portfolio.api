@@ -18,7 +18,7 @@ from api.v1.services.token import TokenService
 
 
 bearer_scheme = HTTPBearer()
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
 logger = create_logger(__name__)
 
 
