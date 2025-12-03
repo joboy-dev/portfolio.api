@@ -23,7 +23,7 @@ class FirebaseService:
         model_id: str = None,
         file_label: str = None,
         file_description: str = None,
-        add_to_db: bool = False,
+        add_to_db: bool = True,
         delete_after_upload: bool = True,
     ):
         '''Function to upload a file'''
