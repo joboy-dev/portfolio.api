@@ -56,7 +56,10 @@ class FileService:
         new_filename = f'{payload.file_name}.{file_extension}' if payload.file_name else  f'{filename.split('.')[0]}_{secrets.token_hex(8)}.{file_extension}'
         new_filename = new_filename.replace(' ', '_')
         STORAGE_DIR = config("FILESTORAGE", default="filestorage")
-        file_path = f"{STORAGE_DIR}/{payload.model_name}/{payload.model_id}/{new_filename}"
+        if payload.model_id:
+            file_path = f"{STORAGE_DIR}/{payload.model_name}/{payload.model_id}/{new_filename}"
+        else:
+            file_path = f"{STORAGE_DIR}/{payload.model_name}/{new_filename}"
         
         # Create directories if they do not exist
         try:

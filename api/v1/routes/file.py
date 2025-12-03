@@ -64,7 +64,8 @@ async def bulk_upload_files(
         db=db,
         files=payload.files,
         model_id=payload.model_id,
-        model_name=payload.model_name
+        model_name=payload.model_name,
+        add_to_db=True
     )
     
     logger.info(f'Files {[file.get('id') for file in file_objs]} uploaded successfully')
@@ -290,7 +291,12 @@ async def delete_file(
     """
     
     file = FileModel.fetch_by_id(db, id)
-    os.remove(file.file_path)
+    try:
+        os.remove(file.file_path)
+    except Exception as e:
+        logger.error("unable to delete file from file system")
+        logger.error(e)
+        
     FileModel.hard_delete(db, id)
 
     return success_response(
