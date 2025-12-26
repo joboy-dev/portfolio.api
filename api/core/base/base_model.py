@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 import sqlalchemy as sa
 from sqlalchemy.orm import Session, class_mapper
@@ -7,8 +8,10 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from inspect import getmembers
 
 from api.db.database import Base
-from api.utils import helpers
+from api.utils.loggers import create_logger
 
+
+logger = create_logger(__name__)
 
 class BaseTableModel(Base):
     """This model creates helper methods for all models"""
@@ -19,15 +22,25 @@ class BaseTableModel(Base):
     _disable_activity_logging = False
     
     id = sa.Column(sa.String, primary_key=True, index=True, default=lambda: str(uuid4().hex))
-    unique_id = sa.Column(sa.String, nullable=True, default=lambda: helpers.generate_unique_id())
+    unique_id = sa.Column(sa.String, nullable=True)
     position = sa.Column(sa.Integer, nullable=False, default=0)
-    is_deleted = sa.Column(sa.Boolean, server_default='false')
-    created_at = sa.Column(sa.DateTime(timezone=True), server_default=sa.func.now())
-    updated_at = sa.Column(sa.DateTime(timezone=True), server_default=sa.func.now(), onupdate=sa.func.now())
+    is_deleted = sa.Column(sa.Boolean, default=False)
+    created_at = sa.Column(sa.DateTime(timezone=True), default=datetime.now(timezone.utc))
+    updated_at = sa.Column(sa.DateTime(timezone=True), default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
 
     
-    def to_dict(self, excludes: List[str] = []) -> Dict[str, Any]:
+    def to_dict(self, excludes: List[str] = [], visited=None) -> Dict[str, Any]:
         """Returns a dictionary representation of the instance"""
+        
+        # Preventing recursion error
+        if visited is None:
+            visited = set()
+
+        if self.id in visited:
+            logger.info(f'Recursion error prevented on table {self.__tablename__} with id {self.id}')
+            return {}  # prevent infinite loop
+
+        visited.add(self.id)
         
         obj_dict = self.__dict__.copy()
         
@@ -55,22 +68,23 @@ class BaseTableModel(Base):
 
 
     @classmethod
-    def create(cls, db: Session, **kwargs):
+    def create(cls, db: Session, commit: bool = True, **kwargs):
         """Creates a new instance of the model"""
         
         obj = cls(**kwargs)
         db.add(obj)
-        db.commit()
-        db.refresh(obj)
+        if commit:
+            db.commit()
+            db.refresh(obj)
         return obj
 
     @classmethod
     def all(
-        cls, 
+        cls,
         db: Session,
-        page: int = 1, 
-        per_page: int = 10, 
-        sort_by: str = "created_at", 
+        page: int = 1,
+        per_page: int = 10,
+        sort_by: str = "created_at",
         order: str = "desc",
         show_deleted: bool = False,
         search_fields: Optional[Dict[str, Any]] = None
@@ -100,83 +114,120 @@ class BaseTableModel(Base):
          
     
     @classmethod
-    def fetch_by_id(cls, db: Session, id: str):
+    def fetch_by_id(cls, db: Session, id: str, error_message: Optional[str] = None):
         """Fetches a single instance by ID. (ignores soft-deleted records).\n
         If checking by ID fails, it checks by unique id before then throwing an error if it fails.
         """
         
-        obj = db.query(cls).filter_by(id=id, is_deleted=False).first()
-        if obj is None:
-            # Check with unique_id
-            obj = db.query(cls).filter_by(unique_id=id, is_deleted=False).first()
+        query = db.query(cls).filter(
+            cls.is_deleted == False,
+            sa.or_(
+                cls.id == id,
+                cls.unique_id == id
+            )
+        )
+        
+        obj = query.first()
             
-            if obj is None and hasattr(cls, "slug"):
-                # Check with slug
-                obj = db.query(cls).filter_by(slug=id, is_deleted=False).first()
-                
-                if obj is None:
-                    raise HTTPException(status_code=404, detail=f"Record not found in table `{cls.__tablename__}`")
+        if obj is None:
+            raise HTTPException(status_code=404, detail=error_message or f"Record not found in table `{cls.__tablename__}`")
             
         return obj
     
 
     @classmethod
-    def fetch_one_by_field(cls, db: Session, throw_error: bool=True, **kwargs):
-        """Fetches one unique record that match the given field(s)"""
-        
-        kwargs["is_deleted"] = False
-        obj = db.query(cls).filter_by(**kwargs).first()
+    def fetch_one_by_field(
+        cls,
+        db: Session,
+        throw_error: bool=True,
+        error_message: Optional[str] = None,
+        status_code: int = 404,
+        filter_expr=None,
+        **kwargs
+    ):
+        """
+        Fetches one unique record that matches the given field(s).
+        Supports complex queries via SQLAlchemy expressions (e.g., or_(), and_()).
+
+        Args:
+            db: SQLAlchemy session.
+            throw_error: Whether to raise an error if not found.
+            error_message: Custom error message.
+            status_code: HTTP status code for error.
+            filter_expr: Optional SQLAlchemy filter expression (e.g., or_(), and_()).
+            **kwargs: Field-based filters (exact match).
+        """
+        # Always filter out soft-deleted records unless explicitly overridden
+        if "is_deleted" not in kwargs and hasattr(cls, "is_deleted"):
+            kwargs["is_deleted"] = False
+
+        query = db.query(cls)
+
+        # Apply field-based filters
+        if kwargs:
+            query = query.filter_by(**kwargs)
+
+        # Apply complex filter expressions if provided
+        if filter_expr is not None:
+            query = query.filter(filter_expr)
+
+        obj = query.first()
         if obj is None and throw_error:
-            raise HTTPException(status_code=404, detail=f"Record not found in table `{cls.__tablename__}`")
+            raise HTTPException(status_code=status_code, detail=error_message or f"Record not found in table `{cls.__tablename__}`")
         return obj
     
     
     @classmethod
     def fetch_by_field(
-        cls, 
+        cls,
         db: Session,
-        page: Optional[int] = 1, 
-        per_page: Optional[int] = 10,  
-        order: str='desc', 
+        page: Optional[int] = 1,
+        per_page: Optional[int] = 10,
+        order: str = 'desc',
         sort_by: str = "created_at",
         show_deleted: bool = False,
         search_fields: Optional[Dict[str, Any]] = None,
         ignore_none_kwarg: bool = True,
         paginate: bool = True,
+        filter_expr=None,
         **kwargs
     ):
-        """Fetches all records that match the given field(s)"""
-        
+        """
+        Fetches all records that match the given field(s), supporting complex SQLAlchemy filter expressions
+        such as and_(), or_(), etc. via the filter_expr argument.
+        """
         query = db.query(cls)
-    
+
         # Handle is_deleted logic
         if not show_deleted and hasattr(cls, "is_deleted"):
             query = query.filter(cls.is_deleted == False)
-        
+
         # Dynamic kwargs filters (exact match)
         if kwargs:
             for field, value in kwargs.items():
                 if ignore_none_kwarg and value is None:
                     continue
-                
                 if hasattr(cls, field):
                     query = query.filter(getattr(cls, field) == value)
-        
-        #  Sorting
+
+        # Apply complex filter expressions if provided
+        if filter_expr is not None:
+            query = query.filter(filter_expr)
+
+        # Sorting
         if order == "desc":
             query = query.order_by(sa.desc(getattr(cls, sort_by)))
         else:
             query = query.order_by(getattr(cls, sort_by))
-            
+
         # Apply search filters
         if search_fields:
             filtered_fields = {field: value for field, value in search_fields.items() if value is not None}
-            
             for field, value in filtered_fields.items():
                 query = query.filter(getattr(cls, field).ilike(f"%{value}%"))
-            
+
         count = query.count()
-            
+
         # Handle pagination
         offset = (page - 1) * per_page
         if not paginate:
@@ -186,53 +237,50 @@ class BaseTableModel(Base):
         
 
     @classmethod
-    def update(cls, db: Session, id: str, **kwargs):
+    def update(cls, db: Session, id: str, commit: bool = True, error_message: Optional[str] = None, **kwargs):
         """Updates an instance with the given ID"""
         
-        obj = db.query(cls).filter_by(id=id, is_deleted=False).first()
-        if obj is None:
-            raise HTTPException(status_code=404, detail=f"Record not found in table `{cls.__tablename__}`")
+        obj = cls.fetch_by_id(db=db, id=id, error_message=error_message)
+        
         for key, value in kwargs.items():
             setattr(obj, key, value)
-        db.commit()
-        db.refresh(obj)
+        
+        if commit:
+            db.commit()
+            db.refresh(obj)
         return obj
     
 
     @classmethod
-    def soft_delete(cls, db: Session, id: str):
+    def soft_delete(cls, db: Session, id: str, commit: bool = True, error_message: Optional[str] = None):
         """Performs a soft delete by setting is_deleted to True"""
         
-        obj = db.query(cls).filter_by(id=id, is_deleted=False).first()
-        if obj is None:
-            raise HTTPException(status_code=404, detail=f"Record not found in table `{cls.__tablename__}`")
-        
+        obj = cls.fetch_by_id(db=db, id=id, error_message=error_message)
         obj.is_deleted = True
-        db.commit()
+        if commit:
+            db.commit()
         
 
     @classmethod
-    def hard_delete(cls, db: Session, id: str):
+    def hard_delete(cls, db: Session, id: str, commit: bool = True, error_message: Optional[str] = None):
         """Permanently deletes an instance by ID or unique_id in case ID fails."""
         
-        obj = db.query(cls).filter_by(id=id).first()
-        if obj is None:
-            raise HTTPException(status_code=404, detail=f"Record not found in table `{cls.__tablename__}`")
-        
+        obj = cls.fetch_by_id(db=db, id=id, error_message=error_message)
         db.delete(obj)
-        db.commit()
+        if commit:
+            db.commit()
 
     
     @classmethod
     def search(
-        cls, 
+        cls,
         db: Session,
-        search_fields: Dict[str, str] = None, 
-        page: int = 1, 
+        search_fields: Dict[str, str] = None,
+        page: int = 1,
         per_page: int = 10,
-        sort_by: str = "created_at", 
-        order: str = "desc", 
-        filters: Dict[str, Any] = None, 
+        sort_by: str = "created_at",
+        order: str = "desc",
+        filters: Dict[str, Any] = None,
         ignore_none_filter: bool = True
     ):
         """
@@ -275,40 +323,4 @@ class BaseTableModel(Base):
         # Apply pagination
         offset = (page - 1) * per_page
         return query, query.offset(offset).limit(per_page).all(), count
-    
-    @classmethod
-    def get_max_position(cls, db: Session):
-        return db.query(sa.func.max(cls.position)).scalar() or 0
-    
-    @classmethod
-    def move_to_position(cls, db: Session, id: str, new_position: int):
-        # Get the obj to move
-        obj = cls.fetch_by_id(db, id)
-
-        current_position = obj.position
-
-        if new_position == current_position:
-            return  # No change needed
-
-        # Shift positions of other objs accordingly
-        if new_position < current_position:
-            # Moving up: shift others down
-            db.query(cls).filter(
-                cls.position >= new_position,
-                cls.position < current_position,
-                cls.id != obj.id
-            ).update({cls.position: cls.position + 1}, synchronize_session="fetch")
-        else:
-            # Moving down: shift others up
-            db.query(cls).filter(
-                cls.position <= new_position,
-                cls.position > current_position,
-                cls.id != obj.id
-            ).update({cls.position: cls.position - 1}, synchronize_session="fetch")
-
-        # Set new position for the dragged obj
-        obj.position = new_position
-        db.commit()
-        db.refresh(obj)
-
 

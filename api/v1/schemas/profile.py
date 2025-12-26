@@ -19,6 +19,7 @@ class ProfileBase(BaseModel):
     about: Optional[str] = None
     interests: Optional[List[str]] = None
     hobbies: Optional[List[str]] = None
+    resume_url: Optional[str] = None
     github_url: Optional[str] = None
     linkedin_url: Optional[str] = None
     twitter_url: Optional[str] = None
@@ -45,6 +46,7 @@ class UpdateProfile(BaseModel):
     about: Optional[str] = None
     interests: Optional[List[str]] = None
     hobbies: Optional[List[str]] = None
+    resume_url: Optional[str] = None
     github_url: Optional[str] = None
     linkedin_url: Optional[str] = None
     twitter_url: Optional[str] = None
