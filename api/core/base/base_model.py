@@ -324,3 +324,34 @@ class BaseTableModel(Base):
         offset = (page - 1) * per_page
         return query, query.offset(offset).limit(per_page).all(), count
 
+
+    @classmethod
+    def move_to_position(cls, db: Session, id: str, new_position: int):
+        # Get the obj to move
+        obj = cls.fetch_by_id(db, id)
+
+        current_position = obj.position
+
+        if new_position == current_position:
+            return  # No change needed
+
+        # Shift positions of other objs accordingly
+        if new_position < current_position:
+            # Moving up: shift others down
+            db.query(cls).filter(
+                cls.position >= new_position,
+                cls.position < current_position,
+                cls.id != obj.id
+            ).update({cls.position: cls.position + 1}, synchronize_session="fetch")
+        else:
+            # Moving down: shift others up
+            db.query(cls).filter(
+                cls.position <= new_position,
+                cls.position > current_position,
+                cls.id != obj.id
+            ).update({cls.position: cls.position - 1}, synchronize_session="fetch")
+
+        # Set new position for the dragged obj
+        obj.position = new_position
+        db.commit()
+        db.refresh(obj)
