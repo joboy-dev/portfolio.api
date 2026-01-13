@@ -99,7 +99,7 @@ async def log_requests(request: Request, call_next):
 # Load the router
 app.include_router(v1_router)
 
-@app.get("/", tags=["Home"])
+@app.head("/", tags=["Home"])
 async def root(request: Request) -> dict:
     return success_response(
         message="Welcome to API", 
