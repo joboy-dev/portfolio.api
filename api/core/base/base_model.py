@@ -355,3 +355,8 @@ class BaseTableModel(Base):
         obj.position = new_position
         db.commit()
         db.refresh(obj)
+
+
+    @classmethod
+    def get_max_position(cls, db: Session):
+        return db.query(sa.func.max(cls.position)).scalar() or 0
