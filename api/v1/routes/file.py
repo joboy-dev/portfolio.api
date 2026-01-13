@@ -152,7 +152,7 @@ async def get_files(
     file_name: str = None,
     label: str = None,
     page: int = 1,
-    per_page: int = 50,
+    per_page: int = 500,
     sort_by: str = 'position',
     order: str = 'asc',
     db: Session=Depends(get_db), 
