@@ -24,8 +24,11 @@ async def create_service(
 ):
     """Endpoint to create a new service"""
 
+    max_position = Service.get_max_position(db)
+    
     service = Service.create(
         db=db,
+        position=max_position+1
         **payload.model_dump(exclude_unset=True)
     )
 
@@ -94,6 +97,9 @@ async def update_service(
     current_user: User=Depends(AuthService.get_current_superuser)
 ):
     """Endpoint to update a service"""
+    
+    if payload.position:
+        Service.move_to_position(db, id, payload.position)
 
     service = Service.update(
         db=db,
@@ -125,4 +131,3 @@ async def delete_service(
         status_code=200,
         data={'id': id}
     )
-

@@ -105,6 +105,13 @@ async def root(request: Request) -> dict:
         message="Welcome to API", 
         status_code=status.HTTP_200_OK
     )
+    
+@app.get("/health", tags=["Home"])
+async def health_check(request: Request) -> dict:
+    return success_response(
+        message="Welcome to API", 
+        status_code=status.HTTP_200_OK
+    )
 
 
 @app.get("/logs", tags=["Home"])

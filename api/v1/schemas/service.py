@@ -14,3 +14,4 @@ class UpdateService(BaseModel):
     description: Optional[str] = None
     file_id: Optional[str] = None
     skills: Optional[List[str]] = None
+    position: Optional[List[str]] = None
