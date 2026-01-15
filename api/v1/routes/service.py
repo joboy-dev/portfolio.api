@@ -46,7 +46,7 @@ async def get_services(
     name: str = None,
     page: int = 1,
     per_page: int = 20,
-    sort_by: str = 'created_at',
+    sort_by: str = 'position',
     order: str = 'desc',
     db: Session=Depends(get_db), 
 ):
