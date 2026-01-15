@@ -47,7 +47,7 @@ async def get_services(
     page: int = 1,
     per_page: int = 20,
     sort_by: str = 'position',
-    order: str = 'desc',
+    order: str = 'asc',
     db: Session=Depends(get_db), 
 ):
     """Endpoint to get all services"""
