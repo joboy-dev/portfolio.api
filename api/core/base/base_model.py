@@ -143,11 +143,15 @@ class BaseTableModel(Base):
             sa.or_(
                 cls.id == id,
                 cls.unique_id == id,
-                cls.slug == id
             )
         )
         
+        
         obj = query.first()
+        
+        if obj is None and hasattr(cls, "slug"):
+            query = query.filter(cls.slug == id)
+            obj = query.first()
             
         if obj is None:
             raise HTTPException(status_code=404, detail=error_message or f"Record not found in table `{cls.__tablename__}`")
