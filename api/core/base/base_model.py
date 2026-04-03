@@ -66,6 +66,15 @@ class BaseTableModel(Base):
                 obj_dict.pop(exclude, None)
             
         return obj_dict
+    
+    @classmethod
+    def load_properties(cls, db: Session, objects: list):
+        """
+        Override in child models if they need bulk hydration.
+        Must NOT do per-object DB calls.
+        """
+        
+        pass
 
 
     @classmethod
@@ -77,6 +86,10 @@ class BaseTableModel(Base):
         if commit:
             db.commit()
             db.refresh(obj)
+        
+        if hasattr(cls, "load_properties"):
+            cls.load_properties(db, [obj])
+            
         return obj
 
     @classmethod
@@ -111,7 +124,12 @@ class BaseTableModel(Base):
 
         # Handle pagination
         offset = (page - 1) * per_page
-        return query, query.offset(offset).limit(per_page).all(), count
+        return_val = query, query.offset(offset).limit(per_page).all(), count
+        
+        if hasattr(cls, "load_properties"):
+            cls.load_properties(db, return_val[1])
+            
+        return return_val
          
     
     @classmethod
@@ -124,17 +142,18 @@ class BaseTableModel(Base):
             cls.is_deleted == False,
             sa.or_(
                 cls.id == id,
-                cls.unique_id == id
+                cls.unique_id == id,
+                cls.slug == id
             )
         )
         
         obj = query.first()
-        
-        if obj is None and hasattr(cls, "slug"):
-            obj = db.query(cls).filter_by(slug=id, is_deleted=False).first()
             
-            if obj is None:
-                raise HTTPException(status_code=404, detail=error_message or f"Record not found in table `{cls.__tablename__}`")
+        if obj is None:
+            raise HTTPException(status_code=404, detail=error_message or f"Record not found in table `{cls.__tablename__}`")
+            
+        if hasattr(cls, "load_properties"):
+            cls.load_properties(db, [obj])
             
         return obj
     
@@ -178,6 +197,10 @@ class BaseTableModel(Base):
         obj = query.first()
         if obj is None and throw_error:
             raise HTTPException(status_code=status_code, detail=error_message or f"Record not found in table `{cls.__tablename__}`")
+        
+        if hasattr(cls, "load_properties"):
+            cls.load_properties(db, [obj])
+            
         return obj
     
     
@@ -235,10 +258,14 @@ class BaseTableModel(Base):
         # Handle pagination
         offset = (page - 1) * per_page
         if not paginate:
-            return query, query.all(), count
+            return_val = query, query.all(), count
         else:
-            return query, query.offset(offset).limit(per_page).all(), count
-        
+            return_val = query, query.offset(offset).limit(per_page).all(), count
+
+        if hasattr(cls, "load_properties"):
+            cls.load_properties(db, return_val[1])
+
+        return return_val
 
     @classmethod
     def update(cls, db: Session, id: str, commit: bool = True, error_message: Optional[str] = None, **kwargs):
@@ -252,6 +279,10 @@ class BaseTableModel(Base):
         if commit:
             db.commit()
             db.refresh(obj)
+            
+        if hasattr(cls, "load_properties"):
+            cls.load_properties(db, [obj])
+        
         return obj
     
 
@@ -263,7 +294,7 @@ class BaseTableModel(Base):
         obj.is_deleted = True
         if commit:
             db.commit()
-        
+            
 
     @classmethod
     def hard_delete(cls, db: Session, id: str, commit: bool = True, error_message: Optional[str] = None):
@@ -326,7 +357,12 @@ class BaseTableModel(Base):
 
         # Apply pagination
         offset = (page - 1) * per_page
-        return query, query.offset(offset).limit(per_page).all(), count
+        return_val = query, query.offset(offset).limit(per_page).all(), count
+        
+        if hasattr(cls, "load_properties"):
+            cls.load_properties(db, return_val[1])
+        
+        return return_val
 
 
     @classmethod
@@ -359,6 +395,9 @@ class BaseTableModel(Base):
         obj.position = new_position
         db.commit()
         db.refresh(obj)
+        
+        if hasattr(cls, "load_properties"):
+            cls.load_properties(db, [obj])
 
 
     @classmethod

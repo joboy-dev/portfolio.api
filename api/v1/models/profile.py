@@ -1,5 +1,6 @@
 from typing import Any, Dict, List
 import sqlalchemy as sa
+from sqlalchemy.orm import Session
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from api.core.base.base_model import BaseTableModel
@@ -35,25 +36,25 @@ class Profile(BaseTableModel):
     whatsapp_url = sa.Column(sa.String, nullable=True)
     website_url = sa.Column(sa.String, nullable=True)
     
+    _projects_count = None
+    _skills_count = None
+    
     @hybrid_property
     def projects_count(self) -> int:
-        from api.v1.models.project import Project
-        
-        with get_db_with_ctx_manager() as db:
-            _, _, count = Project.fetch_by_field(db, paginate=False)
-            return count
+        return self._projects_count if self._projects_count is not None else 0
         
     @hybrid_property
     def skills_count(self) -> int:
-        from api.v1.models.skill import Skill
-        
-        with get_db_with_ctx_manager() as db:
-            _, _, count = Skill.fetch_by_field(db, paginate=False)
-            return count
+        return self._skills_count if self._skills_count is not None else 0
     
     @hybrid_property
     def full_name(self) -> str:
         return f"{self.first_name} {self.last_name}"
+    
+    @classmethod
+    def load_properties(cls, db: Session, objects: list):
+        from api.v1.services.profile import ProfileService
+        ProfileService.load_properties(db, objects)
     
     
     def to_dict(self, excludes: List[str]= []) -> Dict[str, Any]:
