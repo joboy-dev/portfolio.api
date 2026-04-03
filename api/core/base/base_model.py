@@ -148,11 +148,10 @@ class BaseTableModel(Base):
         
         obj = query.first()
         
-        if obj is None:
-            if hasattr(cls, "slug"):
-                query = query.filter(cls.slug == id)
-                obj = query.first()
-            else:
+        if obj is None and hasattr(cls, "slug"):
+            obj = db.query(cls).filter_by(slug=id, is_deleted=False).first()
+            
+            if obj is None:
                 raise HTTPException(status_code=404, detail=error_message or f"Record not found in table `{cls.__tablename__}`")
             
         if hasattr(cls, "load_properties"):
