@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from api.db.database import get_db
 from api.utils import paginator, helpers
+from api.utils.backblaze_service import BackblazeService
 from api.utils.firebase_service import FirebaseService
 from api.utils.responses import success_response
 from api.utils.settings import settings
@@ -43,10 +44,10 @@ async def create_profile(
     #     allowed_extensions=['jpg', 'jpeg', 'png', 'jfif', 'svg']
     # )
     
-    _, url = await FirebaseService.upload_file(
+    _, url = await BackblazeService.upload_to_backblaze(
         db=db,
         file=payload.file,
-        upload_folder='profile',
+        model_name='profile',
         model_id=current_user.id,
         file_label="Profile",
         file_description="User profile image",
@@ -116,10 +117,10 @@ async def update_profile(
         #     allowed_extensions=['jpg', 'jpeg', 'png', 'jfif', 'svg']
         # )
 
-        _, url = await FirebaseService.upload_file(
+        _, url = await BackblazeService.upload_to_backblaze(
             db=db,
             file=payload.file,
-            upload_folder='profile',
+            model_name='profile',
             model_id=current_user.id,
             file_label="Profile",
             file_description="User profile image",

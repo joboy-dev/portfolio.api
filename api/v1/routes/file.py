@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from api.db.database import get_db
 from api.utils import paginator
+from api.utils.backblaze_service import BackblazeService
 from api.utils.firebase_service import FirebaseService
 from api.utils.minio_service import MinioService
 from api.utils.responses import success_response
@@ -129,6 +130,40 @@ async def upload_file_to_firebase(
         db=db,
         file=payload.file,
         upload_folder=payload.model_name,
+        model_id=payload.model_id,
+        file_label=payload.label,
+        file_description=payload.description,
+        allowed_extensions=[
+            "jpg", "jpeg", "png", 
+            "jfif", "svg", "pdf"
+        ]
+    )
+    
+    return success_response(
+        message=f"File uplaoded successfully",
+        status_code=201,
+        data={'url': url}
+    )
+    
+
+@file_router.post("/files/backblaze-upload", status_code=201, response_model=success_response)
+async def upload_file_to_backblaze(
+    payload: file_schemas.FileBase = Depends(file_schemas.FileBase.as_form),
+    db: Session=Depends(get_db), 
+    current_user: User=Depends(AuthService.get_current_superuser)
+):
+    """Endpoint to create a new file
+
+    Args:
+        payload: Payload for creating a new file.
+        db (Session, optional): DB session. Defaults to Depends(get_db).
+        current_user (User, optional): Current logged in user for authentication. Defaults to Depends(AuthService.get_current_entity).
+    """
+    
+    _, url = await BackblazeService.upload_to_backblaze(
+        db=db,
+        file=payload.file,
+        model_name=payload.model_name,
         model_id=payload.model_id,
         file_label=payload.label,
         file_description=payload.description,

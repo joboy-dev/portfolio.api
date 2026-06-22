@@ -128,7 +128,7 @@ class FileService:
     ):
         '''Fucntion to handle bulk upload of files'''
         
-        from api.utils.firebase_service import FirebaseService
+        from api.utils.backblaze_service import BackblazeService
         
         file_instances = []
         
@@ -144,10 +144,10 @@ class FileService:
             #     add_to_db=add_to_db
             # )
             
-            file_instance, url = await FirebaseService.upload_file(
+            file_instance, url = await BackblazeService.upload_to_backblaze(
                 db=db,
                 file=file,
-                upload_folder=model_name,
+                model_name=model_name,
                 model_id=model_id,
                 allowed_extensions=allowed_extensions,
                 add_to_db=add_to_db,
