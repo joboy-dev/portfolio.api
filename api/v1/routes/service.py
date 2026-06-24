@@ -28,7 +28,7 @@ async def create_service(
     
     service = Service.create(
         db=db,
-        position=max_position+1
+        position=max_position+1,
         **payload.model_dump(exclude_unset=True)
     )
 
