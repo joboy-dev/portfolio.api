@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from api.db.database import get_db
 from api.utils import paginator
 from api.utils.backblaze_service import BackblazeService
+from api.utils.cache import get_cache
 from api.utils.firebase_service import FirebaseService
 from api.utils.minio_service import MinioService
 from api.utils.responses import success_response
@@ -18,6 +19,21 @@ from api.utils.loggers import create_logger
 
 file_router = APIRouter(tags=['Files & Folders'])
 logger = create_logger(__name__)
+
+# Files are listed per (model_name, model_id) - that's effectively a
+# different dataset per combo, not just a filter on one list - so each combo
+# gets its own page cache. Id-based lookups don't know that combo ahead of
+# fetch, so they go through one flat cache shared across every combo.
+file_id_cache = get_cache('files:by-id')
+
+def _file_list_cache(model_name: str = None, model_id: str = None):
+    return get_cache(f'files:{model_name or "*"}:{model_id or "*"}')
+
+def _clear_file_caches(model_name: str = None, model_id: str = None):
+    _file_list_cache(model_name, model_id).clear()
+    _file_list_cache(model_name, None).clear()
+    _file_list_cache(None, None).clear()
+    file_id_cache.clear()
 
 @file_router.post("/files", status_code=201, response_model=success_response)
 async def create_file(
@@ -37,7 +53,9 @@ async def create_file(
         db=db,
         payload=payload
     )
-    
+
+    _clear_file_caches(payload.model_name, payload.model_id)
+
     logger.info(f'File {file_obj.file_name} created at {file_obj.file_path}')
 
     return success_response(
@@ -68,7 +86,9 @@ async def bulk_upload_files(
         model_name=payload.model_name,
         add_to_db=True
     )
-    
+
+    _clear_file_caches(payload.model_name, payload.model_id)
+
     logger.info(f'Files {[file.get('id') for file in file_objs]} uploaded successfully')
     
     return success_response(
@@ -199,9 +219,21 @@ async def get_files(
         db (Session, optional): DB session. Defaults to Depends(get_db).
         entity (User, optional): Current logged in user for authentication. Defaults to Depends(AuthService.get_current_entity).
     """
-    
+
+    use_cache = not file_name and not label and sort_by == 'position' and order.lower() == 'asc'
+    list_cache = _file_list_cache(model_name, model_id)
+
+    if use_cache and list_cache.has_page(page, per_page):
+        return paginator.build_paginated_response(
+            items=list_cache.get_page(page, per_page),
+            endpoint='/files',
+            page=page,
+            size=per_page,
+            total=list_cache.total,
+        )
+
     query, files, count = FileModel.fetch_by_field(
-        db, 
+        db,
         sort_by=sort_by,
         order=order.lower(),
         page=page,
@@ -213,9 +245,16 @@ async def get_files(
         model_name=model_name,
         model_id=model_id,
     )
-    
+
+    items = [file.to_dict() for file in files]
+
+    if use_cache:
+        list_cache.store_page(items, count, 'id', 'unique_id')
+        for item in items:
+            file_id_cache.store_item(item, 'id', 'unique_id')
+
     return paginator.build_paginated_response(
-        items=[file.to_dict() for file in files],
+        items=items,
         endpoint='/files',
         page=page,
         size=per_page,
@@ -236,12 +275,22 @@ async def get_file_by_id(
         current_user (User, optional): Current logged in user for authentication. Defaults to Depends(AuthService.get_current_entity).
     """
 
+    cached_file = file_id_cache.get_item(id)
+    if cached_file:
+        return success_response(
+            message=f"Fetched file successfully",
+            status_code=200,
+            data=cached_file
+        )
+
     file = FileModel.fetch_by_id(db, id)
-    
+    file_dict = file.to_dict()
+    file_id_cache.store_item(file_dict, 'id', 'unique_id')
+
     return success_response(
         message=f"Fetched file successfully",
         status_code=200,
-        data=file.to_dict()
+        data=file_dict
     )
 
 
@@ -302,6 +351,8 @@ async def update_file(
         **payload.model_dump(exclude_unset=True)
     )
 
+    _clear_file_caches(file_instance.model_name, file_instance.model_id)
+
     logger.info(f'File updated to {updated_file.file_name} at {updated_file.file_path}')
     
     return success_response(
@@ -333,6 +384,8 @@ async def delete_file(
         logger.error(e)
         
     FileModel.hard_delete(db, id)
+
+    _clear_file_caches(file.model_name, file.model_id)
 
     return success_response(
         message=f"Deleted {id} successfully",

@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from api.db.database import get_db
 from api.utils import paginator, helpers
+from api.utils.cache import get_cache
 from api.utils.responses import success_response
 from api.utils.settings import settings
 from api.v1.models.user import User
@@ -15,32 +16,35 @@ from api.utils.loggers import create_logger
 
 tag_router = APIRouter(prefix='/tags', tags=['Tag'])
 logger = create_logger(__name__)
+tag_cache = get_cache('tags')
 
 @tag_router.post("", status_code=201, response_model=success_response)
 async def create_tag(
     payload: tag_schemas.TagBase,
-    db: Session=Depends(get_db), 
+    db: Session=Depends(get_db),
     current_user: User=Depends(AuthService.get_current_superuser)
 ):
-    """Endpoint to create a new tag"""     
+    """Endpoint to create a new tag"""
 
     payload.name = payload.name.lower()
     payload.model_type = payload.model_type.lower()
-    
+
     existing_tag = Tag.fetch_one_by_field(
         db=db,
         throw_error=False,
         name=payload.name,
         model_type=payload.model_type
     )
-    
+
     if existing_tag:
         raise HTTPException(400, detail="Tag already exists")
-    
+
     tag = Tag.create(
         db=db,
         **payload.model_dump(exclude_unset=True)
     )
+
+    tag_cache.clear()
 
     return success_response(
         message=f"Tag created successfully",
@@ -63,8 +67,22 @@ async def get_tags(
 ):
     """Endpoint to get all tags"""
 
+    use_cache = (
+        not name and not group and not model_type
+        and sort_by == 'created_at' and order.lower() == 'desc'
+    )
+
+    if use_cache and tag_cache.has_page(page, per_page):
+        return paginator.build_paginated_response(
+            items=tag_cache.get_page(page, per_page),
+            endpoint='/tags',
+            page=page,
+            size=per_page,
+            total=tag_cache.total,
+        )
+
     query, tags, count = Tag.fetch_by_field(
-        db, 
+        db,
         sort_by=sort_by,
         order=order.lower(),
         page=page,
@@ -75,9 +93,14 @@ async def get_tags(
         group=group,
         model_type=model_type,
     )
-    
+
+    items = [tag.to_dict() for tag in tags]
+
+    if use_cache:
+        tag_cache.store_page(items, count, 'id', 'unique_id')
+
     return paginator.build_paginated_response(
-        items=[tag.to_dict() for tag in tags],
+        items=items,
         endpoint='/tags',
         page=page,
         size=per_page,
@@ -100,6 +123,9 @@ async def attach_tag_to_eneity(
         entity_id=payload.entity_id
     )
 
+    # the attached entity's own cached `tags` field is now stale
+    get_cache(payload.model_type).clear()
+
     return success_response(
         message=f"Tag(s) attached to entity successfully",
         status_code=200
@@ -121,6 +147,8 @@ async def detatch_tag_from_entity(
         entity_id=payload.entity_id
     )
 
+    get_cache(payload.model_type).clear()
+
     return success_response(
         message=f"Tag(s) detatched from entity successfully",
         status_code=200
@@ -135,12 +163,22 @@ async def get_tag_by_id(
 ):
     """Endpoint to get a tag by ID or unique_id in case ID fails."""
 
+    cached_tag = tag_cache.get_item(id)
+    if cached_tag:
+        return success_response(
+            message=f"Fetched tag successfully",
+            status_code=200,
+            data=cached_tag
+        )
+
     tag = Tag.fetch_by_id(db, id)
+    tag_dict = tag.to_dict()
+    tag_cache.store_item(tag_dict, 'id', 'unique_id')
 
     return success_response(
         message=f"Fetched tag successfully",
         status_code=200,
-        data=tag.to_dict()
+        data=tag_dict
     )
 
 
@@ -177,6 +215,8 @@ async def update_tag(
         **payload.model_dump(exclude_unset=True)
     )
 
+    tag_cache.clear()
+
     return success_response(
         message=f"Tag updated successfully",
         status_code=200,
@@ -193,6 +233,8 @@ async def delete_tag(
     """Endpoint to delete a tag"""
 
     Tag.soft_delete(db, id)
+
+    tag_cache.clear()
 
     return success_response(
         message=f"Deleted successfully",

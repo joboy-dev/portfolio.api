@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from api.db.database import get_db
 from api.utils import paginator, helpers
 from api.utils.backblaze_service import BackblazeService
+from api.utils.cache import get_cache
 from api.utils.firebase_service import FirebaseService
 from api.utils.responses import success_response
 from api.utils.settings import settings
@@ -19,6 +20,8 @@ from api.utils.loggers import create_logger
 
 profile_router = APIRouter(prefix='/profile', tags=['Profile'])
 logger = create_logger(__name__)
+profile_cache = get_cache('profile')
+PROFILE_CACHE_KEY = 'singleton'
 
 @profile_router.post("", status_code=201, response_model=success_response)
 async def create_profile(
@@ -64,6 +67,8 @@ async def create_profile(
         **payload.model_dump(exclude_unset=True, exclude=['file'])
     )
 
+    profile_cache.clear()
+
     logger.info(f'Profile with id {profile.id} created')
 
     return success_response(
@@ -79,15 +84,26 @@ async def get_profile(
 ):
     """Endpoint to get profile."""
 
+    cached_profile = profile_cache.get_item(PROFILE_CACHE_KEY)
+    if cached_profile:
+        return success_response(
+            message=f"Fetched profile successfully",
+            status_code=200,
+            data=cached_profile
+        )
+
     _, profiles, count = Profile.fetch_by_field(db, paginate=False)
-    
+
     if count == 0:
         raise HTTPException(status_code=404, detail="Profile not found")
+
+    profile_dict = profiles[0].to_dict()
+    profile_cache.put(PROFILE_CACHE_KEY, profile_dict)
 
     return success_response(
         message=f"Fetched profile successfully",
         status_code=200,
-        data=profiles[0].to_dict()
+        data=profile_dict
     )
 
 
@@ -138,6 +154,8 @@ async def update_profile(
         **payload.model_dump(exclude_unset=True, exclude=['file'])
     )
 
+    profile_cache.clear()
+
     logger.info(f'Profile with id {profile.id} updated')
 
     return success_response(
@@ -160,6 +178,8 @@ async def delete_profile(
         raise HTTPException(status_code=404, detail="Profile not found")
 
     Profile.soft_delete(db, profiles[0].id)
+
+    profile_cache.clear()
 
     return success_response(
         message=f"Deleted successfully",

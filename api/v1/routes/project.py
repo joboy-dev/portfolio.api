@@ -5,6 +5,7 @@ import sqlalchemy as sa
 
 from api.db.database import get_db
 from api.utils import paginator, helpers
+from api.utils.cache import get_cache
 from api.utils.responses import success_response
 from api.utils.settings import settings
 from api.v1.models.user import User
@@ -18,6 +19,7 @@ from api.utils.loggers import create_logger
 
 project_router = APIRouter(prefix='/projects', tags=['Project'])
 logger = create_logger(__name__)
+project_cache = get_cache('projects')
 
 @project_router.post("", status_code=201, response_model=success_response)
 async def create_project(
@@ -45,6 +47,8 @@ async def create_project(
     project.slug = slugify(f"{project.unique_id}-{project.name}")
     db.commit()
 
+    project_cache.clear()
+
     logger.info(f'Project with id {project.id} created')
 
     return success_response(
@@ -69,8 +73,22 @@ async def get_projects(
 ):
     """Endpoint to get all projects"""
 
+    use_cache = (
+        not name and not slug and not domain and not project_type and not tags
+        and sort_by == 'position' and order.lower() == 'asc'
+    )
+
+    if use_cache and project_cache.has_page(page, per_page):
+        return paginator.build_paginated_response(
+            items=project_cache.get_page(page, per_page),
+            endpoint='/projects',
+            page=page,
+            size=per_page,
+            total=project_cache.total,
+        )
+
     query, projects, count = Project.fetch_by_field(
-        db, 
+        db,
         sort_by=sort_by,
         order=order.lower(),
         page=page,
@@ -82,20 +100,25 @@ async def get_projects(
         slug=slug,
         project_type=project_type,
     )
-    
+
     if tags:
         tag_list = tags.split(',')
         query = query.filter(Project.tags.any(Tag.name.in_(tag_list)))
         projects, count = query.all(), query.count()
-    
+
+    items = [project.to_dict() for project in projects]
+
+    if use_cache:
+        project_cache.store_page(items, count, 'id', 'unique_id', 'slug')
+
     return paginator.build_paginated_response(
-        items=[project.to_dict() for project in projects],
+        items=items,
         endpoint='/projects',
         page=page,
         size=per_page,
         total=count,
     )
-    
+
 
 @project_router.get("/featured", status_code=200)
 async def get_featured_projects(
@@ -103,14 +126,23 @@ async def get_featured_projects(
 ):
     """Endpoint to get all projects"""
 
+    if project_cache.has_page(1, 4):
+        return paginator.build_paginated_response(
+            items=project_cache.get_page(1, 4),
+            endpoint='/projects/featured',
+            page=1,
+            size=4,
+            total=project_cache.total,
+        )
+
     query, projects, count = Project.fetch_by_field(
-        db, 
+        db,
         sort_by='position',
         order='asc',
         page=1,
         per_page=4,
     )
-    
+
     return paginator.build_paginated_response(
         items=[project.to_dict() for project in projects],
         endpoint='/projects/featured',
@@ -123,16 +155,26 @@ async def get_featured_projects(
 @project_router.get("/{id}", status_code=200, response_model=success_response)
 async def get_project_by_id(
     id: str,
-    db: Session=Depends(get_db), 
+    db: Session=Depends(get_db),
 ):
     """Endpoint to get a project by ID or unique_id in case ID fails."""
 
+    cached_project = project_cache.get_item(id)
+    if cached_project:
+        return success_response(
+            message=f"Fetched project successfully",
+            status_code=200,
+            data=cached_project
+        )
+
     project = Project.fetch_by_id(db, id)
-    
+    project_dict = project.to_dict()
+    project_cache.store_item(project_dict, 'id', 'unique_id', 'slug')
+
     return success_response(
         message=f"Fetched project successfully",
         status_code=200,
-        data=project.to_dict()
+        data=project_dict
     )
 
 
@@ -172,6 +214,8 @@ async def update_project(
         
     db.commit()
 
+    project_cache.clear()
+
     logger.info(f'Project with id {project.id} updated')
 
     return success_response(
@@ -190,6 +234,8 @@ async def delete_project(
     """Endpoint to delete a project"""
 
     Project.soft_delete(db, id)
+
+    project_cache.clear()
 
     return success_response(
         message=f"Deleted successfully",

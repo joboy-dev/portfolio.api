@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from api.db.database import get_db
 from api.utils import paginator, helpers
+from api.utils.cache import get_cache
 from api.utils.responses import success_response
 from api.utils.settings import settings
 from api.v1.models.user import User
@@ -15,22 +16,25 @@ from api.utils.loggers import create_logger
 
 service_router = APIRouter(prefix='/services', tags=['Service'])
 logger = create_logger(__name__)
+service_cache = get_cache('services')
 
 @service_router.post("", status_code=201, response_model=success_response)
 async def create_service(
     payload: service_schemas.ServiceBase,
-    db: Session=Depends(get_db), 
+    db: Session=Depends(get_db),
     current_user: User=Depends(AuthService.get_current_superuser)
 ):
     """Endpoint to create a new service"""
 
     max_position = Service.get_max_position(db)
-    
+
     service = Service.create(
         db=db,
         position=max_position+1,
         **payload.model_dump(exclude_unset=True)
     )
+
+    service_cache.clear()
 
     logger.info(f'Service with id {service.id} created')
 
@@ -52,8 +56,19 @@ async def get_services(
 ):
     """Endpoint to get all services"""
 
+    use_cache = not name and sort_by == 'position' and order.lower() == 'asc'
+
+    if use_cache and service_cache.has_page(page, per_page):
+        return paginator.build_paginated_response(
+            items=service_cache.get_page(page, per_page),
+            endpoint='/services',
+            page=page,
+            size=per_page,
+            total=service_cache.total,
+        )
+
     query, services, count = Service.fetch_by_field(
-        db, 
+        db,
         sort_by=sort_by,
         order=order.lower(),
         page=page,
@@ -62,9 +77,14 @@ async def get_services(
             'name': name,
         },
     )
-    
+
+    items = [service.to_dict() for service in services]
+
+    if use_cache:
+        service_cache.store_page(items, count, 'id', 'unique_id')
+
     return paginator.build_paginated_response(
-        items=[service.to_dict() for service in services],
+        items=items,
         endpoint='/services',
         page=page,
         size=per_page,
@@ -75,17 +95,27 @@ async def get_services(
 @service_router.get("/{id}", status_code=200, response_model=success_response)
 async def get_service_by_id(
     id: str,
-    db: Session=Depends(get_db), 
+    db: Session=Depends(get_db),
     current_user: User=Depends(AuthService.get_current_superuser)
 ):
     """Endpoint to get a service by ID or unique_id in case ID fails."""
 
+    cached_service = service_cache.get_item(id)
+    if cached_service:
+        return success_response(
+            message=f"Fetched service successfully",
+            status_code=200,
+            data=cached_service
+        )
+
     service = Service.fetch_by_id(db, id)
-    
+    service_dict = service.to_dict()
+    service_cache.store_item(service_dict, 'id', 'unique_id')
+
     return success_response(
         message=f"Fetched service successfully",
         status_code=200,
-        data=service.to_dict()
+        data=service_dict
     )
 
 
@@ -107,6 +137,8 @@ async def update_service(
         **payload.model_dump(exclude_unset=True)
     )
 
+    service_cache.clear()
+
     logger.info(f'Service with id {service.id} updated')
 
     return success_response(
@@ -125,6 +157,8 @@ async def delete_service(
     """Endpoint to delete a service"""
 
     Service.soft_delete(db, id)
+
+    service_cache.clear()
 
     return success_response(
         message=f"Deleted successfully",

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from api.db.database import get_db
 from api.utils import paginator, helpers
 from api.utils.backblaze_service import BackblazeService
+from api.utils.cache import get_cache
 from api.utils.responses import success_response
 from api.utils.settings import settings
 from api.v1.models.user import User
@@ -19,6 +20,7 @@ from api.utils.loggers import create_logger
 
 blog_router = APIRouter(prefix='/blogs', tags=['Blog'])
 logger = create_logger(__name__)
+blog_cache = get_cache('blogs')
 
 @blog_router.post("", status_code=201, response_model=success_response)
 async def create_blog(
@@ -40,6 +42,8 @@ async def create_blog(
 
     blog.slug = slugify(f"{blog.unique_id}-{blog.title}")
     db.commit()
+
+    blog_cache.clear()
 
     logger.info(f'Blog with id {blog.id} created')
 
@@ -63,6 +67,20 @@ async def get_blogs(
 ):
     """Endpoint to get all blogs"""
 
+    use_cache = (
+        not search and not tags and is_published is None
+        and sort_by == 'created_at' and order.lower() == 'desc'
+    )
+
+    if use_cache and blog_cache.has_page(page, per_page):
+        return paginator.build_paginated_response(
+            items=blog_cache.get_page(page, per_page),
+            endpoint='/blogs',
+            page=page,
+            size=per_page,
+            total=blog_cache.total,
+        )
+
     query, blogs, count = Blog.fetch_by_field(
         db,
         sort_by=sort_by,
@@ -80,8 +98,13 @@ async def get_blogs(
         query = query.filter(Blog.tags.any(Tag.name.in_(tag_list)))
         blogs, count = query.all(), query.count()
 
+    items = [blog.to_dict() for blog in blogs]
+
+    if use_cache:
+        blog_cache.store_page(items, count, 'id', 'unique_id', 'slug')
+
     return paginator.build_paginated_response(
-        items=[blog.to_dict() for blog in blogs],
+        items=items,
         endpoint='/blogs',
         page=page,
         size=per_page,
@@ -96,12 +119,22 @@ async def get_blog_by_id(
 ):
     """Endpoint to get a blog by ID or unique_id in case ID fails."""
 
+    cached_blog = blog_cache.get_item(id)
+    if cached_blog:
+        return success_response(
+            message=f"Fetched blog successfully",
+            status_code=200,
+            data=cached_blog
+        )
+
     blog = Blog.fetch_by_id(db, id)
+    blog_dict = blog.to_dict()
+    blog_cache.store_item(blog_dict, 'id', 'unique_id', 'slug')
 
     return success_response(
         message=f"Fetched blog successfully",
         status_code=200,
-        data=blog.to_dict()
+        data=blog_dict
     )
 
 
@@ -126,6 +159,8 @@ async def update_blog(
     if payload.is_published and not blog.published_at:
         blog.published_at = datetime.now(timezone.utc)
         db.commit()
+
+    blog_cache.clear()
 
     logger.info(f'Blog with id {blog.id} updated')
 
@@ -167,6 +202,8 @@ async def upload_blog_cover_image(
         cover_image_url=url
     )
 
+    blog_cache.clear()
+
     return success_response(
         message=f"Blog cover image uploaded successfully",
         status_code=200,
@@ -183,6 +220,8 @@ async def delete_blog(
     """Endpoint to delete a blog"""
 
     Blog.soft_delete(db, id)
+
+    blog_cache.clear()
 
     return success_response(
         message=f"Deleted successfully",

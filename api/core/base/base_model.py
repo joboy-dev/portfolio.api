@@ -23,7 +23,7 @@ class BaseTableModel(Base):
     _disable_activity_logging = False
     
     id = sa.Column(sa.String, primary_key=True, index=True, default=lambda: str(uuid4().hex))
-    unique_id = sa.Column(sa.String, nullable=True, default=lambda: helpers.generate_unique_id())
+    unique_id = sa.Column(sa.String, nullable=True, index=True, default=lambda: helpers.generate_unique_id())
     position = sa.Column(sa.Integer, nullable=False, default=0)
     is_deleted = sa.Column(sa.Boolean, default=False)
     created_at = sa.Column(sa.DateTime(timezone=True), default=datetime.now(timezone.utc))

@@ -4,6 +4,7 @@ import sqlalchemy as sa
 
 from api.db.database import get_db
 from api.utils import paginator, helpers
+from api.utils.cache import get_cache
 from api.utils.responses import success_response
 from api.utils.settings import settings
 from api.v1.models.user import User
@@ -16,15 +17,16 @@ from api.utils.loggers import create_logger
 
 skill_router = APIRouter(prefix='/skills', tags=['Skill'])
 logger = create_logger(__name__)
+skill_cache = get_cache('skills')
 
 @skill_router.post("", status_code=201, response_model=success_response)
 async def create_skill(
     payload: skill_schemas.SkillBase,
-    db: Session=Depends(get_db), 
+    db: Session=Depends(get_db),
     current_user: User=Depends(AuthService.get_current_superuser)
 ):
     """Endpoint to create a new skill"""
-    
+
     max_position = Skill.get_max_position(db)
 
     skill = Skill.create(
@@ -32,6 +34,8 @@ async def create_skill(
         position=max_position+1,
         **payload.model_dump(exclude_unset=True)
     )
+
+    skill_cache.clear()
 
     logger.info(f'Skill with id {skill.id} created')
 
@@ -53,8 +57,19 @@ async def get_skills(
 ):
     """Endpoint to get all skills"""
 
+    use_cache = not name and sort_by == 'position' and order.lower() == 'asc'
+
+    if use_cache and skill_cache.has_page(page, per_page):
+        return paginator.build_paginated_response(
+            items=skill_cache.get_page(page, per_page),
+            endpoint='/skills',
+            page=page,
+            size=per_page,
+            total=skill_cache.total,
+        )
+
     query, skills, count = Skill.fetch_by_field(
-        db, 
+        db,
         sort_by=sort_by,
         order=order.lower(),
         page=page,
@@ -63,9 +78,14 @@ async def get_skills(
             'name': name,
         },
     )
-    
+
+    items = [skill.to_dict() for skill in skills]
+
+    if use_cache:
+        skill_cache.store_page(items, count, 'id', 'unique_id')
+
     return paginator.build_paginated_response(
-        items=[skill.to_dict() for skill in skills],
+        items=items,
         endpoint='/skills',
         page=page,
         size=per_page,
@@ -76,17 +96,27 @@ async def get_skills(
 @skill_router.get("/{id}", status_code=200, response_model=success_response)
 async def get_skill_by_id(
     id: str,
-    db: Session=Depends(get_db), 
+    db: Session=Depends(get_db),
     current_user: User=Depends(AuthService.get_current_superuser)
 ):
     """Endpoint to get a skill by ID or unique_id in case ID fails."""
 
+    cached_skill = skill_cache.get_item(id)
+    if cached_skill:
+        return success_response(
+            message=f"Fetched skill successfully",
+            status_code=200,
+            data=cached_skill
+        )
+
     skill = Skill.fetch_by_id(db, id)
-    
+    skill_dict = skill.to_dict()
+    skill_cache.store_item(skill_dict, 'id', 'unique_id')
+
     return success_response(
         message=f"Fetched skill successfully",
         status_code=200,
-        data=skill.to_dict()
+        data=skill_dict
     )
 
 
@@ -108,6 +138,8 @@ async def update_skill(
         **payload.model_dump(exclude_unset=True)
     )
 
+    skill_cache.clear()
+
     logger.info(f'Skill with id {skill.id} updated')
 
     return success_response(
@@ -126,6 +158,8 @@ async def delete_skill(
     """Endpoint to delete a skill"""
 
     Skill.soft_delete(db, id)
+
+    skill_cache.clear()
 
     return success_response(
         message=f"Deleted successfully",

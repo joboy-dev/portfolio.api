@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from api.db.database import get_db
 from api.utils import paginator, helpers
+from api.utils.cache import get_cache
 from api.utils.responses import success_response
 from api.utils.settings import settings
 from api.v1.models.user import User
@@ -16,15 +17,16 @@ from api.utils.loggers import create_logger
 
 category_router = APIRouter(prefix='/categories', tags=['Category'])
 logger = create_logger(__name__)
+category_cache = get_cache('categories')
 
 @category_router.post("", status_code=201, response_model=success_response)
 async def create_category(
     payload: category_schemas.CategoryBase,
-    db: Session=Depends(get_db), 
+    db: Session=Depends(get_db),
     current_user: User=Depends(AuthService.get_current_superuser)
 ):
     """Endpoint to create a new category"""
-    
+
     if not payload.slug:
         payload.slug = slugify(payload.name)
 
@@ -32,6 +34,8 @@ async def create_category(
         db=db,
         **payload.model_dump(exclude_unset=True)
     )
+
+    category_cache.clear()
 
     return success_response(
         message=f"Category created successfully",
@@ -55,8 +59,22 @@ async def get_categories(
 ):
     """Endpoint to get all categories"""
 
+    use_cache = (
+        not unique_id and not name and not slug and not model_type
+        and sort_by == 'created_at' and order.lower() == 'desc'
+    )
+
+    if use_cache and category_cache.has_page(page, per_page):
+        return paginator.build_paginated_response(
+            items=category_cache.get_page(page, per_page),
+            endpoint='/categories',
+            page=page,
+            size=per_page,
+            total=category_cache.total,
+        )
+
     query, categories, count = Category.fetch_by_field(
-        db, 
+        db,
         sort_by=sort_by,
         order=order.lower(),
         page=page,
@@ -68,9 +86,14 @@ async def get_categories(
         slug=slug,
         model_type=model_type,
     )
-    
+
+    items = [category.to_dict() for category in categories]
+
+    if use_cache:
+        category_cache.store_page(items, count, 'id', 'unique_id', 'slug')
+
     return paginator.build_paginated_response(
-        items=[category.to_dict() for category in categories],
+        items=items,
         endpoint='/categories',
         page=page,
         size=per_page,
@@ -92,6 +115,9 @@ async def attach_category_to_eneity(
         model_type=payload.model_type,
         entity_id=payload.entity_id
     )
+
+    # the attached entity's own cached `categories` field is now stale
+    get_cache(payload.model_type).clear()
 
     return success_response(
         message=f"Categories attached to entity successfully",
@@ -115,6 +141,8 @@ async def detatch_category_from_entity(
         entity_id=payload.entity_id
     )
 
+    get_cache(payload.model_type).clear()
+
     return success_response(
         message=f"Categories detatched from entity successfully",
         status_code=200
@@ -129,12 +157,22 @@ async def get_category_by_id(
 ):
     """Endpoint to get a category by ID or unique_id in case ID fails."""
 
+    cached_category = category_cache.get_item(id)
+    if cached_category:
+        return success_response(
+            message=f"Fetched category successfully",
+            status_code=200,
+            data=cached_category
+        )
+
     category = Category.fetch_by_id(db, id)
-    
+    category_dict = category.to_dict()
+    category_cache.store_item(category_dict, 'id', 'unique_id', 'slug')
+
     return success_response(
         message=f"Fetched category successfully",
         status_code=200,
-        data=category.to_dict()
+        data=category_dict
     )
 
 
@@ -155,6 +193,8 @@ async def update_category(
         **payload.model_dump(exclude_unset=True)
     )
 
+    category_cache.clear()
+
     return success_response(
         message=f"Category updated successfully",
         status_code=200,
@@ -171,6 +211,8 @@ async def delete_category(
     """Endpoint to delete a category"""
 
     Category.soft_delete(db, id)
+
+    category_cache.clear()
 
     return success_response(
         message=f"Deleted successfully",

@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from api.db.database import get_db
 from api.utils import paginator, helpers
+from api.utils.cache import get_cache
 from api.utils.responses import success_response
 from api.utils.settings import settings
 from api.v1.models.user import User
@@ -15,11 +16,12 @@ from api.utils.loggers import create_logger
 
 experience_router = APIRouter(prefix='/experiences', tags=['Experience'])
 logger = create_logger(__name__)
+experience_cache = get_cache('experiences')
 
 @experience_router.post("", status_code=201, response_model=success_response)
 async def create_experience(
     payload: experience_schemas.ExperienceBase,
-    db: Session=Depends(get_db), 
+    db: Session=Depends(get_db),
     current_user: User=Depends(AuthService.get_current_superuser)
 ):
     """Endpoint to create a new experience"""
@@ -28,6 +30,8 @@ async def create_experience(
         db=db,
         **payload.model_dump(exclude_unset=True)
     )
+
+    experience_cache.clear()
 
     logger.info(f'Experience with id {experience.id} created')
 
@@ -49,17 +53,33 @@ async def get_experiences(
 ):
     """Endpoint to get all experiences"""
 
+    use_cache = not company and sort_by == 'start_date' and order.lower() == 'desc'
+
+    if use_cache and experience_cache.has_page(page, per_page):
+        return paginator.build_paginated_response(
+            items=experience_cache.get_page(page, per_page),
+            endpoint='/experiences',
+            page=page,
+            size=per_page,
+            total=experience_cache.total,
+        )
+
     query, experiences, count = Experience.fetch_by_field(
-        db, 
+        db,
         sort_by=sort_by,
         order=order.lower(),
         page=page,
         per_page=per_page,
         search_fields={'company': company},
     )
-    
+
+    items = [experience.to_dict() for experience in experiences]
+
+    if use_cache:
+        experience_cache.store_page(items, count, 'id', 'unique_id')
+
     return paginator.build_paginated_response(
-        items=[experience.to_dict() for experience in experiences],
+        items=items,
         endpoint='/experiences',
         page=page,
         size=per_page,
@@ -70,17 +90,27 @@ async def get_experiences(
 @experience_router.get("/{id}", status_code=200, response_model=success_response)
 async def get_experience_by_id(
     id: str,
-    db: Session=Depends(get_db), 
+    db: Session=Depends(get_db),
     current_user: User=Depends(AuthService.get_current_superuser)
 ):
     """Endpoint to get a experience by ID or unique_id in case ID fails."""
 
+    cached_experience = experience_cache.get_item(id)
+    if cached_experience:
+        return success_response(
+            message=f"Fetched experience successfully",
+            status_code=200,
+            data=cached_experience
+        )
+
     experience = Experience.fetch_by_id(db, id)
-    
+    experience_dict = experience.to_dict()
+    experience_cache.store_item(experience_dict, 'id', 'unique_id')
+
     return success_response(
         message=f"Fetched experience successfully",
         status_code=200,
-        data=experience.to_dict()
+        data=experience_dict
     )
 
 
@@ -98,6 +128,8 @@ async def update_experience(
         id=id,
         **payload.model_dump(exclude_unset=True)
     )
+
+    experience_cache.clear()
 
     logger.info(f'Experience with id {experience.id} updated')
 
@@ -117,6 +149,8 @@ async def delete_experience(
     """Endpoint to delete a experience"""
 
     Experience.soft_delete(db, id)
+
+    experience_cache.clear()
 
     return success_response(
         message=f"Deleted successfully",

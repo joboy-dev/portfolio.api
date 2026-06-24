@@ -4,6 +4,7 @@ import sqlalchemy as sa
 
 from api.db.database import get_db
 from api.utils import paginator, helpers
+from api.utils.cache import get_cache
 from api.utils.responses import success_response
 from api.utils.settings import settings
 from api.v1.models.user import User
@@ -16,15 +17,16 @@ from api.utils.loggers import create_logger
 
 certification_router = APIRouter(prefix='/certifications', tags=['Certification'])
 logger = create_logger(__name__)
+certification_cache = get_cache('certifications')
 
 @certification_router.post("", status_code=201, response_model=success_response)
 async def create_certification(
     payload: certification_schemas.CertificationBase,
-    db: Session=Depends(get_db), 
+    db: Session=Depends(get_db),
     current_user: User=Depends(AuthService.get_current_superuser)
 ):
     """Endpoint to create a new certification"""
-    
+
     max_position = Certification.get_max_position(db)
 
     certification = Certification.create(
@@ -32,6 +34,8 @@ async def create_certification(
         position=max_position+1,
         **payload.model_dump(exclude_unset=True)
     )
+
+    certification_cache.clear()
 
     logger.info(f'Certification with id {certification.id} created')
 
@@ -53,17 +57,33 @@ async def get_certifications(
 ):
     """Endpoint to get all certifications"""
 
+    use_cache = not name and sort_by == 'position' and order.lower() == 'asc'
+
+    if use_cache and certification_cache.has_page(page, per_page):
+        return paginator.build_paginated_response(
+            items=certification_cache.get_page(page, per_page),
+            endpoint='/certifications',
+            page=page,
+            size=per_page,
+            total=certification_cache.total,
+        )
+
     query, certifications, count = Certification.fetch_by_field(
-        db, 
+        db,
         sort_by=sort_by,
         order=order.lower(),
         page=page,
         per_page=per_page,
         search_fields={'name': name},
     )
-    
+
+    items = [certification.to_dict() for certification in certifications]
+
+    if use_cache:
+        certification_cache.store_page(items, count, 'id', 'unique_id')
+
     return paginator.build_paginated_response(
-        items=[certification.to_dict() for certification in certifications],
+        items=items,
         endpoint='/certifications',
         page=page,
         size=per_page,
@@ -74,17 +94,27 @@ async def get_certifications(
 @certification_router.get("/{id}", status_code=200, response_model=success_response)
 async def get_certification_by_id(
     id: str,
-    db: Session=Depends(get_db), 
+    db: Session=Depends(get_db),
     current_user: User=Depends(AuthService.get_current_superuser)
 ):
     """Endpoint to get a certification by ID or unique_id in case ID fails."""
 
+    cached_certification = certification_cache.get_item(id)
+    if cached_certification:
+        return success_response(
+            message=f"Fetched certification successfully",
+            status_code=200,
+            data=cached_certification
+        )
+
     certification = Certification.fetch_by_id(db, id)
-    
+    certification_dict = certification.to_dict()
+    certification_cache.store_item(certification_dict, 'id', 'unique_id')
+
     return success_response(
         message=f"Fetched certification successfully",
         status_code=200,
-        data=certification.to_dict()
+        data=certification_dict
     )
 
 
@@ -106,6 +136,8 @@ async def update_certification(
         **payload.model_dump(exclude_unset=True)
     )
 
+    certification_cache.clear()
+
     logger.info(f'Certification with id {certification.id} updated')
 
     return success_response(
@@ -124,6 +156,8 @@ async def delete_certification(
     """Endpoint to delete a certification"""
 
     Certification.soft_delete(db, id)
+
+    certification_cache.clear()
 
     return success_response(
         message=f"Deleted successfully",

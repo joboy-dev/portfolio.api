@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from api.db.database import get_db
 from api.utils import paginator, helpers
+from api.utils.cache import get_cache
 from api.utils.responses import success_response
 from api.utils.settings import settings
 from api.v1.models.user import User
@@ -15,11 +16,12 @@ from api.utils.loggers import create_logger
 
 award_router = APIRouter(prefix='/awards', tags=['Award'])
 logger = create_logger(__name__)
+award_cache = get_cache('awards')
 
 @award_router.post("", status_code=201, response_model=success_response)
 async def create_award(
     payload: award_schemas.AwardBase,
-    db: Session=Depends(get_db), 
+    db: Session=Depends(get_db),
     current_user: User=Depends(AuthService.get_current_superuser)
 ):
     """Endpoint to create a new award"""
@@ -28,6 +30,8 @@ async def create_award(
         db=db,
         **payload.model_dump(exclude_unset=True)
     )
+
+    award_cache.clear()
 
     logger.info(f'Award with id {award.id} created')
 
@@ -49,17 +53,33 @@ async def get_awards(
 ):
     """Endpoint to get all awards"""
 
+    use_cache = not name and sort_by == 'issue_date' and order.lower() == 'desc'
+
+    if use_cache and award_cache.has_page(page, per_page):
+        return paginator.build_paginated_response(
+            items=award_cache.get_page(page, per_page),
+            endpoint='/awards',
+            page=page,
+            size=per_page,
+            total=award_cache.total,
+        )
+
     query, awards, count = Award.fetch_by_field(
-        db, 
+        db,
         sort_by=sort_by,
         order=order.lower(),
         page=page,
         per_page=per_page,
         search_fields={'name': name},
     )
-    
+
+    items = [award.to_dict() for award in awards]
+
+    if use_cache:
+        award_cache.store_page(items, count, 'id', 'unique_id')
+
     return paginator.build_paginated_response(
-        items=[award.to_dict() for award in awards],
+        items=items,
         endpoint='/awards',
         page=page,
         size=per_page,
@@ -70,17 +90,27 @@ async def get_awards(
 @award_router.get("/{id}", status_code=200, response_model=success_response)
 async def get_award_by_id(
     id: str,
-    db: Session=Depends(get_db), 
+    db: Session=Depends(get_db),
     current_user: User=Depends(AuthService.get_current_superuser)
 ):
     """Endpoint to get a award by ID or unique_id in case ID fails."""
 
+    cached_award = award_cache.get_item(id)
+    if cached_award:
+        return success_response(
+            message=f"Fetched award successfully",
+            status_code=200,
+            data=cached_award
+        )
+
     award = Award.fetch_by_id(db, id)
-    
+    award_dict = award.to_dict()
+    award_cache.store_item(award_dict, 'id', 'unique_id')
+
     return success_response(
         message=f"Fetched award successfully",
         status_code=200,
-        data=award.to_dict()
+        data=award_dict
     )
 
 
@@ -98,6 +128,8 @@ async def update_award(
         id=id,
         **payload.model_dump(exclude_unset=True)
     )
+
+    award_cache.clear()
 
     logger.info(f'Award with id {award.id} updated')
 
@@ -117,6 +149,8 @@ async def delete_award(
     """Endpoint to delete a award"""
 
     Award.soft_delete(db, id)
+
+    award_cache.clear()
 
     return success_response(
         message=f"Deleted successfully",
